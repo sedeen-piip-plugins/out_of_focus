@@ -32,19 +32,7 @@ class Threshold;
 using namespace cv;
 namespace algorithm {
 
-/// Algorithm for detecting foreground of images
-//
-/// This algorithm segments an image and draws bounding boxes around regions it
-/// determines are in the foreground. 
-///
-/// Foreground detection is based on OTSU thresholding of the selected channel
-/// followed by morphological closing and opening (which remove the spurious 
-/// results). The minimum size of the foreground object can be set via the
-/// window size of the morphological operators.
-///
-/// \todo
-/// To better delineate foreground region, output should be polygons rather 
-/// than rectangles
+
 class outOfFocus : public AlgorithmBase {
  public:
   outOfFocus();
@@ -59,6 +47,7 @@ class outOfFocus : public AlgorithmBase {
 
   bool buildPipeline(int threshold);
   void getMatObject(Mat&);
+  void debuglogger(String txt,int debugmode);
   void setOutputObject(cv::Mat imageOpenCV);
   String getUniqueFilename();
     /// Parameter for selecting threshold retainment 

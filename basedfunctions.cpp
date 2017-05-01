@@ -1,5 +1,5 @@
 #include "stdafx.h"
-#include "segmentAlgo.h"
+#include "basedfunctions.h"
 
 	using namespace cv;
 	using namespace std;
