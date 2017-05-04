@@ -100,7 +100,7 @@ POCO_BEGIN_MANIFEST(sedeen::algorithm::AlgorithmBase)
 				std::ifstream in(path_to_image, std::ifstream::ate | std::ifstream::binary);
 				int sizeOfFile= in.tellg();  //will get filesize 
 				std::string sizeString = std::to_string(sizeOfFile);
-				std::string finalFileName= tempPath + sizeString+ m_path_to_root+ ".png"; // save as png.
+				std::string finalFileName= tempPath +  std::to_string(window_size_)+ sizeString+ m_path_to_root+ ".png"; // save as png.
 
 				return finalFileName;
 			}
@@ -108,9 +108,12 @@ POCO_BEGIN_MANIFEST(sedeen::algorithm::AlgorithmBase)
 
 			// MAIN FUNCTION
 			void outOfFocus::run() {
+				int debugMODE=2;  //debugMODE= 0 >no log file  //debugMODE= 1 >brief log //debugMODE= 2 >detailed log
 
-std:String outputfile=getUniqueFilename();
+
+				std:String outputfile=getUniqueFilename();
 				logger mylogger;
+				mylogger.setDebugMode(debugMODE);
 				mylogger.setFilename(outputfile);
 				mylogger.print("Get factory.\n");
 
@@ -129,7 +132,7 @@ std:String outputfile=getUniqueFilename();
 				resolutions=new double [maxLevelID] ;
 				resolutions[0]=maxRes;
 				int optimiumScale=-1; //OPTIMAL SCALE FOR TISSUE DETECTION
-				double optimumScaleRatio=1.0/64.0;
+				double optimumScaleRatio=1.0/1.0;
 				double downscaleRatio=1.0/4.0;
 
 				//Extract The scale information in other layers. Detect most suitable layer for tissue detection.
@@ -157,7 +160,8 @@ std:String outputfile=getUniqueFilename();
 				{
 					mylogger.print("No Cache --- retainment\n");
 
-					cv::namedWindow("Scanning",cv::WINDOW_AUTOSIZE);
+					cv::namedWindow("Scanning",cv::WINDOW_NORMAL);
+					cv::resizeWindow("Scanning", 200,200);
 					int shiftSize=512*window_size_;
 					int sampleSize=512*2;
 					int bgTreshold=700;
@@ -202,15 +206,25 @@ std:String outputfile=getUniqueFilename();
 
 						summedMat=otsuR;
 
+
 					}else { 
 						// We need to give an error!!! We couldnt find any suitable resized image
 						mylogger.print("optimiumScale is lower than -1\n");
+
 						optimiumScale=1;
 						optimumScaleRatio=1;
-						
-						Mat summedMat= Mat (sz.height()*downscaleRatio,sz.width()*downscaleRatio,CV_8UC1);
-						summedMat=cv::Scalar(255);
+
+						summedMat= Mat (sz.height()*optimumScaleRatio,sz.width()*optimumScaleRatio,CV_8UC1,cv::Scalar(0));
+
+
+
 					}
+
+					mylogger.print("summedMat size" + std::to_string(summedMat.size().width) + " " +  std::to_string(summedMat.size().height) +"\n" );
+					mylogger.print("summedMat data type" +  std::to_string(summedMat.type())+"\n");
+					double minV, maxV;
+					cv::minMaxLoc(summedMat, &minV, &maxV);
+					mylogger.print("summedMat max Val:" +  std::to_string(maxV)+"\n",1);
 
 					Mat stdFltResult;
 					int subsample=3;// StdMaxVals= subsample*subsample
@@ -233,18 +247,19 @@ std:String outputfile=getUniqueFilename();
 					mylogger.print("height "+ std::to_string(compositor.getDimensions(0).height())+" "+"width "+ std::to_string(compositor.getDimensions(0).width()),1);
 					try {
 						for (int i=0;i< compositor.getDimensions(0).height()-shiftSize-1;i=i+shiftSize){
-							
+
 							for (int j=0;j< compositor.getDimensions(0).width()-shiftSize-1;j=j+shiftSize){
-								
+
 								int si=i*optimumScaleRatio;
 								int sj=j*optimumScaleRatio;
-								mylogger.print(" " + std::to_string(si),1);
+								mylogger.print(" " + std::to_string(si) + " " + std::to_string(sj) ,1);
 								int intensity = summedMat.at<uchar>(si,sj);
-								
+								mylogger.print("a" ,1);
 
 								if (intensity<255){
 									auto pixelRect=	Rect (Point(j,i),Size(sampleSize,sampleSize));
 									auto PixVal = compositor.getImage(0, pixelRect);
+									mylogger.print("b" ,1);
 									auto mat = image::toOpenCV(PixVal,true);
 
 									Mat RedBand;
@@ -253,7 +268,7 @@ std:String outputfile=getUniqueFilename();
 
 									subRectCounter=0;
 									//devide the  sample into n sample, calculate the median of max values of each small tiles.
-
+									mylogger.print("c" ,1);
 									for (int si=0;si< (RedBand.rows-1);si=si+RedBand.rows/subsample){
 										for (int sj=0;sj< (RedBand.cols-1);sj=sj+RedBand.cols/subsample){
 											cv::minMaxLoc(stdFltResult(cv::Rect(sj,si,floor(RedBand.cols/subsample), floor(RedBand.rows/subsample))) , &min, &max);
@@ -261,6 +276,7 @@ std:String outputfile=getUniqueFilename();
 											subRectCounter++;
 										}
 									}
+									mylogger.print("d" ,1);
 									tileVal= ceil (myFocusDetector.GetMedian(StdMaxVals,subRectCounter));
 
 									//put these informations to resultmap
@@ -270,7 +286,7 @@ std:String outputfile=getUniqueFilename();
 									roi2=cv::Scalar(0);
 									RedBand.release();
 									mat.release();
-
+									mylogger.print("e\n" ,1);
 								}else{
 									Mat roi2(dataMap, cv::Rect(j* optimumScaleRatio*downscaleRatio,i *optimumScaleRatio*downscaleRatio,1,1));
 									roi2=cv::Scalar(0);

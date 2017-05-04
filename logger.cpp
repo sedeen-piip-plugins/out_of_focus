@@ -3,7 +3,7 @@
 
 logger::logger(void)
 {
-	debugMode=2;
+	debugMode=1;
 }
 
 
