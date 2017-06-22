@@ -22,7 +22,7 @@
 #include <fstream>
 #include <iostream>
 #include <fstream>
-#include "logger.h"
+
 using namespace std;
 // This plugin is  developed by Caglar Senaras
 // if you have any comments or feedbacks please contact: caglarsenaras@gmail.com
@@ -83,7 +83,7 @@ POCO_BEGIN_MANIFEST(sedeen::algorithm::AlgorithmBase)
 
 
 			//In order to save intermediate results we use that function
-			// filename: filesize + filename + ".png"
+			// filename: window size+ filesize+ plugin version + filename + ".png"
 			String outOfFocus::getUniqueFilename(){
 				TCHAR buf [MAX_PATH];
 				GetTempPathA (MAX_PATH, buf);
@@ -100,17 +100,136 @@ POCO_BEGIN_MANIFEST(sedeen::algorithm::AlgorithmBase)
 				std::ifstream in(path_to_image, std::ifstream::ate | std::ifstream::binary);
 				int sizeOfFile= in.tellg();  //will get filesize 
 				std::string sizeString = std::to_string(sizeOfFile);
-				std::string finalFileName= tempPath +  std::to_string(window_size_)+ sizeString+ m_path_to_root+ ".png"; // save as png.
+				std::string finalFileName= tempPath +  std::to_string(window_size_)+ sizeString+ "v2" + m_path_to_root+ ".png"; // save as png.
 
 				return finalFileName;
 			}
 
+			//Since we need to detect tissue, we resize the image 1/64, 
+			//convert it to grayscale and apply a  thresholding. 
+			cv::Mat outOfFocus::calcTissueMask(const sedeen::image::ImageHandle& image, logger &mylogger, int sampleSize){
 
-			// MAIN FUNCTION
+				auto source_factory = image->getFactory();
+				auto compositor = image::tile::Compositor(source_factory) ;
+				auto szInitial = compositor.getDimensions(0);
+				auto reducedSize= szInitial*(1.0/sampleSize); //requested new dimension
+				auto pixelRect=	Rect (Point(0,0),Size(szInitial.width(),szInitial.height()));
+				auto SmallImg = compositor.getImage( pixelRect, reducedSize) ;
+				auto lowResMat = image::toOpenCV(SmallImg, false);
+
+				//lowResMat.convertTo(lowResMat, CV_32F);
+				//extract tissue map
+				Mat grayImg;
+				cvtColor(lowResMat, grayImg, cv::COLOR_RGB2GRAY);	
+				grayImg.convertTo(grayImg,CV_8U);
+				Mat otsuR;
+				//apply a bluring function before OTSU 
+				GaussianBlur (grayImg,grayImg,cv::Size(9,9),0,0);
+				auto selectedThreshold=cv::threshold(grayImg, otsuR, 220,  255, THRESH_BINARY | CV_THRESH_OTSU  );
+				mylogger.print("Otsu threshold Val: " + std::to_string( selectedThreshold)+"\n");
+				if (selectedThreshold<220)  cv::threshold(grayImg, otsuR, 220,  255, THRESH_BINARY  );
+				//our tissue mask is otsuR
+				mylogger.print("Tissue detected.\n");
+
+				return  otsuR;
+			}
+
+			cv::Mat outOfFocus::calculateFocusMap(const sedeen::image::ImageHandle& image, Mat &tissueMask,int sampleSize,int window_size_ ,logger &mylogger){
+				auto source_factory = image->getFactory();
+				auto compositor = image::tile::Compositor(source_factory) ;
+				auto width= tissueMask.size().width;	
+				auto height= tissueMask.size().height;	
+				segmentAlgo myFocusDetector;
+				Mat stdFltResult;
+				int subsample=3;// StdMaxVals= subsample*subsample
+				double StdMaxVals[9];//StdMaxVals= subsample*subsample
+				int subRectCounter;
+				double min, max;
+				double tileVal;
+				Mat resultMap= Mat::zeros (height,width,CV_8UC1);
+				cv::namedWindow("Analyzing",cv::WINDOW_NORMAL);
+				cv::resizeWindow("Analyzing", (200*width/height),200);
+				for (int i=0;i<width;i=i+window_size_){ //window_size_ is our step size
+					for (int j=0;j<height;j=j+window_size_){
+						int intensity = tissueMask.at<uchar>(j, i); // intensity will be 0 for tissue
+						if (intensity==0){
+							auto pixelRect=	Rect (Point(i*sampleSize,j*sampleSize),Size(sampleSize,sampleSize));
+									auto PixVal = compositor.getImage(0, pixelRect);
+									mylogger.print("b" ,1);
+									auto mat = image::toOpenCV(PixVal,true);
+									Scalar meanVal=cv::mean(mat);
+
+									if (meanVal.val[0]<225){ //  tissue control for Block
+										Mat RedBand;
+										myFocusDetector.getRedBand(mat, RedBand);
+										myFocusDetector.stdFilt(RedBand, stdFltResult);
+
+										subRectCounter=0;
+										int subSize=floor(RedBand.cols/subsample);
+										//devide the  sample into n sample, calculate the median of max values of each small tiles.
+										mylogger.print("c" ,1);
+										for (int si=0;si<subsample;si++){
+											for (int sj=0;sj<subsample;sj++){
+												cv::minMaxLoc(stdFltResult(cv::Rect(sj*subSize,si*subSize,subSize, subSize)) , &min, &max);
+												StdMaxVals[subRectCounter]=max;
+												subRectCounter++;
+											}
+										}
+										mylogger.print("d" ,1);
+										tileVal= ceil (myFocusDetector.GetMedian(StdMaxVals,subRectCounter));
+										cout<<tileVal<<endl;
+										resultMap.at<uchar>(j, i)=tileVal;
+									}else{
+										tissueMask.at<uchar>(j, i)=255;
+									}
+						}
+
+						cv::imshow("Analyzing",resultMap>0);
+						cvWaitKey(1);
+					}
+				}
+				return resultMap;
+			}
+
+			// Aims to visualize
+			image::RawImage outOfFocus::createMask(cv::Mat finalMap, sedeen::Size sz, logger &mylogger){
+				mylogger.print("final visual mask generation:\n");
+				image::RawImage mask(sz, Color(ColorSpace::RGBA_8));
+				mask.fill(0);
+				unsigned char intensityA=255;
+
+				int thresholdVal=score_threshold_; 
+				auto width= finalMap.size().width;	
+				auto height= finalMap.size().height;	
+				unsigned char  RedVals [8]={255,180,120,80,0,0,0,0};
+				unsigned char  GreenVals [8]={0,0,0,0,80,180,220,255};
+				int newVal;
+				for (int i=0;i<width;i=i+window_size_){ //window_size_ is our step size
+					for (int j=0;j<height;j=j+window_size_){
+						int intensity = finalMap.at<uchar>(j, i); // intensity will be 0 for tissue
+						if (intensity<255){
+							if (intensity<thresholdVal){
+								newVal= 4-  4*double(thresholdVal-intensity)/(thresholdVal-9);
+							}else{
+								newVal=4+ 3*double(intensity-thresholdVal) /(80-thresholdVal+0.1);
+								if (newVal>7) newVal=7;
+							}
+							mask.setValue(i,j,0,RedVals[newVal]);
+							mask.setValue(i,j,1,GreenVals[newVal]); 
+							mask.setValue(i,j,3,intensityA);
+						
+						}
+					}
+				}
+				mylogger.print("Done\n");
+				return mask;
+			}
+
+
 			void outOfFocus::run() {
-				int debugMODE=2;  //debugMODE= 0 >no log file  //debugMODE= 1 >brief log //debugMODE= 2 >detailed log
+				int debugMODE=1;  //debugMODE= 0 >no log file  //debugMODE= 1 >brief log //debugMODE= 2 >detailed log
 
-
+				int sampleSize=512*2;
 				std:String outputfile=getUniqueFilename();
 				logger mylogger;
 				mylogger.setDebugMode(debugMODE);
@@ -120,200 +239,27 @@ POCO_BEGIN_MANIFEST(sedeen::algorithm::AlgorithmBase)
 				auto source_factory = image()->getFactory();
 				auto source_color = source_factory->getColor();
 				auto compositor = image::tile::Compositor(source_factory) ;
-				double maxRes= getMaximumMagnification(image());
 				auto szInitial = compositor.getDimensions(0);
-				auto sz=szInitial;
-				mylogger.print("Get maxlevelID.\n");
-
-				int maxLevelID=getNumResolutionLevels	(image());
-				double * resolutions;
-				mylogger.print(std::to_string(maxLevelID)+"\n");
-
-				resolutions=new double [maxLevelID] ;
-				resolutions[0]=maxRes;
-				int optimiumScale=-1; //OPTIMAL SCALE FOR TISSUE DETECTION
-				double optimumScaleRatio=1.0/1.0;
-				double downscaleRatio=1.0/4.0;
-
-				//Extract The scale information in other layers. Detect most suitable layer for tissue detection.
-				for (int i=1;i<maxLevelID;i++){
-					sz = compositor.getDimensions(i);
-					resolutions[i]=maxRes * double(sz.height()) / double(szInitial.height()) ;
-
-					if (sz.height()<4000 && sz.height()>500){  // resolutions[i]>0.5
-						optimiumScale=i;
-						optimumScaleRatio= double(sz.height()) / double(szInitial.height()) ;
-					}
-				}
-
-				mylogger.print("Optimal Scale and Rat: " + std::to_string(optimiumScale)+" " + std::to_string(optimumScaleRatio)+"\n");
-
-				sz = compositor.getDimensions(optimiumScale);
-				Mat heatMap2;	
+				auto reducedSize= szInitial*(1.0/sampleSize); //requested new dimension
+				double maxRes= getMaximumMagnification(image());
 
 
-				mylogger.print("Checking Cache:\n");
+				Mat finalHeatMap = imread(outputfile, 0);   // Read the intermediate result file
 
-				heatMap2 = imread(outputfile, 0);   // Read the intermediate result file
-
-				if((!heatMap2.data) ||  1==retainment_   )  // Check for invalid input
+				// Check for invalid input or retainment_ (request for using existing cache file)
+				if ((!finalHeatMap.data) ||  1==retainment_   )  
 				{
-					mylogger.print("No Cache --- retainment\n");
-
-					cv::namedWindow("Scanning",cv::WINDOW_NORMAL);
-					cv::resizeWindow("Scanning", 200,200);
-					int shiftSize=512*window_size_;
-					int sampleSize=512*2;
-					int bgTreshold=700;
-					segmentAlgo myFocusDetector;
-
-					cv::Mat imageOpenCV;
-
-					Mat summedMat;
-					// 			
-					//Tissue detection part
-					//
-					if (optimiumScale>-1){  //We have a layer to anaylze the tissue!
-						mylogger.print("Get image and read  as opencv object\n");
-
-						auto pixelRect=	Rect (Point(0,0),Size(sz.width(),sz.height()));
-						auto SmallImg = compositor.getImage(optimiumScale, pixelRect);
-						//auto lowResMat = image::toOpenCVMat(SmallImg,true);
-						auto lowResMat = image::toOpenCV(SmallImg, false);
-
-						mylogger.print("convert to CV_32F\n");
-
-						lowResMat.convertTo(lowResMat, CV_32F);
-						//extract tissue map
-						Mat *channel;
-						channel= new Mat [lowResMat.channels()];
-						cv::split(lowResMat, channel);
-						//calculare r+g+b for each pixel
-						summedMat=channel[0]+channel[1]+channel[2];
-
-						double min,max;
-						cv::minMaxLoc(summedMat, &min, &max);//can be deleted
-
-						Mat otsuR;
-						Mat summedMat8=summedMat/3;
-						summedMat8.convertTo(summedMat8,CV_8U);
-						Mat summedMat8S;
-						//apply a bluring function before OTSU 
-						GaussianBlur (summedMat8,summedMat8S,cv::Size(9,9),0,0);
-						cv::threshold(summedMat8S, otsuR, 50,  255, THRESH_BINARY | CV_THRESH_OTSU  );
-						//our tissue mask is summedMat
-						mylogger.print("Tissue detected.\n");
-
-						summedMat=otsuR;
-
-
-					}else { 
-						// We need to give an error!!! We couldnt find any suitable resized image
-						mylogger.print("optimiumScale is lower than -1\n");
-
-						optimiumScale=1;
-						optimumScaleRatio=1;
-
-						summedMat= Mat (sz.height()*optimumScaleRatio,sz.width()*optimumScaleRatio,CV_8UC1,cv::Scalar(0));
-
-
-
-					}
-
-					mylogger.print("summedMat size" + std::to_string(summedMat.size().width) + " " +  std::to_string(summedMat.size().height) +"\n" );
-					mylogger.print("summedMat data type" +  std::to_string(summedMat.type())+"\n");
-					double minV, maxV;
-					cv::minMaxLoc(summedMat, &minV, &maxV);
-					mylogger.print("summedMat max Val:" +  std::to_string(maxV)+"\n",1);
-
-					Mat stdFltResult;
-					int subsample=3;// StdMaxVals= subsample*subsample
-					double StdMaxVals[9];//StdMaxVals= subsample*subsample
-					int subRectCounter;
-					double min, max;
-
-					Mat resultMap= Mat (sz.height()*downscaleRatio,sz.width()*downscaleRatio,CV_8UC1);
-					Mat dataMap= Mat (sz.height()*downscaleRatio,sz.width()*downscaleRatio,CV_8UC1);
-
-					resultMap=cv::Scalar(255);
-					dataMap=cv::Scalar(255);
-
-					Mat smallMap;
-					double tileVal;
-					// Aim of this loop: we get samples from the tissue and calculate the stdfilt for each sample. 
-					//not: resultMap is a resized result map. we enlarge it after the loop.
-
-					mylogger.print("reading Small tiles and identify out of focus regions:... ");
-					mylogger.print("height "+ std::to_string(compositor.getDimensions(0).height())+" "+"width "+ std::to_string(compositor.getDimensions(0).width()),1);
-					try {
-						for (int i=0;i< compositor.getDimensions(0).height()-shiftSize-1;i=i+shiftSize){
-
-							for (int j=0;j< compositor.getDimensions(0).width()-shiftSize-1;j=j+shiftSize){
-
-								int si=i*optimumScaleRatio;
-								int sj=j*optimumScaleRatio;
-								mylogger.print(" " + std::to_string(si) + " " + std::to_string(sj) ,1);
-								int intensity = summedMat.at<uchar>(si,sj);
-								mylogger.print("a" ,1);
-
-								if (intensity<255){
-									auto pixelRect=	Rect (Point(j,i),Size(sampleSize,sampleSize));
-									auto PixVal = compositor.getImage(0, pixelRect);
-									mylogger.print("b" ,1);
-									auto mat = image::toOpenCV(PixVal,true);
-
-									Mat RedBand;
-									myFocusDetector.getRedBand(mat, RedBand);
-									myFocusDetector.stdFilt(RedBand, stdFltResult);
-
-									subRectCounter=0;
-									//devide the  sample into n sample, calculate the median of max values of each small tiles.
-									mylogger.print("c" ,1);
-									for (int si=0;si< (RedBand.rows-1);si=si+RedBand.rows/subsample){
-										for (int sj=0;sj< (RedBand.cols-1);sj=sj+RedBand.cols/subsample){
-											cv::minMaxLoc(stdFltResult(cv::Rect(sj,si,floor(RedBand.cols/subsample), floor(RedBand.rows/subsample))) , &min, &max);
-											StdMaxVals[subRectCounter]=max;
-											subRectCounter++;
-										}
-									}
-									mylogger.print("d" ,1);
-									tileVal= ceil (myFocusDetector.GetMedian(StdMaxVals,subRectCounter));
-
-									//put these informations to resultmap
-									Mat roi(resultMap, cv::Rect(j*optimumScaleRatio*downscaleRatio,i*optimumScaleRatio*downscaleRatio,sampleSize*optimumScaleRatio*downscaleRatio,sampleSize*optimumScaleRatio*downscaleRatio));
-									roi=cv::Scalar(tileVal);
-									Mat roi2(dataMap, cv::Rect(j*optimumScaleRatio*downscaleRatio,i*optimumScaleRatio*downscaleRatio,sampleSize*optimumScaleRatio*downscaleRatio,sampleSize*optimumScaleRatio*downscaleRatio));
-									roi2=cv::Scalar(0);
-									RedBand.release();
-									mat.release();
-									mylogger.print("e\n" ,1);
-								}else{
-									Mat roi2(dataMap, cv::Rect(j* optimumScaleRatio*downscaleRatio,i *optimumScaleRatio*downscaleRatio,1,1));
-									roi2=cv::Scalar(0);
-
-								}
-
-								cv::imshow("Scanning",resultMap);
-								cvWaitKey(1);
-
-							}
-						}
-					}
-					catch (exception& e){
-						mylogger.print(e.what());
-					}
-					mylogger.print("OK\n");
-
-					cv::Mat heatMap;
-					cv::resize(resultMap,heatMap,summedMat.size(),0,0,CV_INTER_NN);
-					heatMap2=cv::Scalar(255);
-					heatMap.copyTo(heatMap2,summedMat==0);
-					heatMap2=heatMap2+summedMat;
-					mylogger.print(" saving to  cache:");
-
-					imwrite(outputfile,heatMap2); //write intermediate result for further usage.
-					mylogger.print("OK\n");
-
+					mylogger.print("f0 - running without cache..\n");
+					Mat tissueMask=calcTissueMask(image(), mylogger, sampleSize);
+					auto szInitial = compositor.getDimensions(0);
+					auto sz=szInitial;
+					mylogger.print("f0 - Get maxlevelID.\n");
+					Mat heatmap= calculateFocusMap(image(),tissueMask,sampleSize,window_size_, mylogger);
+					heatmap.copyTo(finalHeatMap,tissueMask==0);
+					finalHeatMap=finalHeatMap+tissueMask;
+					mylogger.print("f0 - saving to  cache:");
+					imwrite(outputfile,finalHeatMap); //write intermediate result for further usage.
+					mylogger.print("f0 - OK\n");
 				}
 				else
 				{
@@ -321,55 +267,13 @@ POCO_BEGIN_MANIFEST(sedeen::algorithm::AlgorithmBase)
 
 				}
 
-
 				auto largest_region = source_factory->getLevelRegion(0);
 				auto largest_size = size(largest_region);
+				auto mask=createMask(finalHeatMap,reducedSize,mylogger);
 
-
-				image::RawImage mask(sz, Color(ColorSpace::RGBA_8));
-				mask.fill(0);
-
-				int thresholdVal1=score_threshold_; //default 40
-				int thresholdVal2=score_threshold_*4/5;
-				int thresholdVal3=score_threshold_*3/5;
-				int thresholdVal4=score_threshold_*2/5;
-				int thresholdVal5=score_threshold_*1/5;
-
-				mylogger.print("Creating final map for visualization.\n");
-
-				//Creating final map for visualization.
-				for (int i=0;i<sz.width();i++){ //not best way
-					for (int j=0;j<sz.height();j++){
-						unsigned char &intensity = heatMap2.at<unsigned char>(j, i);
-						unsigned char intensityR=0;
-						unsigned char intensityG=0;
-						unsigned char intensityA=0;
-						if (intensity<=thresholdVal1 && intensity>0){ //TODO: update that part, use otsu 
-							intensityA=255;
-							intensityG=0;
-							if (intensity>=thresholdVal2) {intensityR=80;}  //TODO: It is UGLY!. Do it nice!
-							else if(intensity>=thresholdVal3){intensityR=130;}
-							else if(intensity>=thresholdVal4){intensityR=180;}	
-							else if(intensity>=thresholdVal5){intensityR=220;}	
-							else {intensityR=255;}
-						}
-						if (intensity>thresholdVal1 && intensity<255){
-							intensityA=255;
-							intensityR=0;
-							if (intensity<thresholdVal1+(80-thresholdVal1)*1/4 ) {intensityG=80;} 
-							else if(intensity<=thresholdVal1+(80-thresholdVal1)*2/4 ){intensityG=130;}
-							else if(intensity<=thresholdVal1+(80-thresholdVal1)*3/4 ){intensityG=180;}	
-							else if(intensity<=thresholdVal1+(80-thresholdVal1)*4/4 ){intensityG=220;}	
-							else {intensityG=255;}
-						}
-						mask.setValue(i,j,0,intensityR);
-						mask.setValue(i,j,1,intensityG); 
-						mask.setValue(i,j,3,intensityA);
-
-					}
-				}
 
 				image_result_.update(mask, largest_region);
+
 				cv::destroyAllWindows();
 				mylogger.print("Done.\n");
 				mylogger.close();

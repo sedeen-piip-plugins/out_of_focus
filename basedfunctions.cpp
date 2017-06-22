@@ -1,4 +1,4 @@
-#include "stdafx.h"
+
 #include "basedfunctions.h"
 
 	using namespace cv;

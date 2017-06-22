@@ -8,7 +8,7 @@
 #include "algorithm/AlgorithmBase.h"
 #include "algorithm/Parameters.h"
 #include "algorithm/Results.h"
-
+#include "logger.h"
 #include "opencv2/imgproc/imgproc_c.h"
 //#include "opencv2/imgcodecs.hpp"
 //#include "opencv2/highgui/highgui.hpp"
@@ -47,6 +47,9 @@ class outOfFocus : public AlgorithmBase {
 
   bool buildPipeline(int threshold);
   void getMatObject(Mat&);
+  cv::Mat calcTissueMask(const sedeen::image::ImageHandle& image, logger &mylogger, int sampleSize);
+  cv::Mat calculateFocusMap(const sedeen::image::ImageHandle& image, Mat &tissueMask,int sampleSize,int window_size_, logger &mylogger);
+  sedeen::image::RawImage createMask(cv::Mat finalMap, sedeen::Size size, logger &mylogger);
   void debuglogger(String txt,int debugmode);
   void setOutputObject(cv::Mat imageOpenCV);
   String getUniqueFilename();
