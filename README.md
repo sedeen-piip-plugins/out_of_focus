@@ -1,4 +1,4 @@
-<h1 align="center">Out of focus plug-in (v 0.1)</h1>
+<h1 align="center">Out of focus plug-in (v 0.5)</h1>
 The main purpose of the plugin is to detect out-of-focus regions within a slide's image. The 'out of focus threshold' option allows the user to update their decisions and once ran, the results are displayed accordingly.  
 
 ## Installation:
@@ -16,11 +16,11 @@ The main purpose of the plugin is to detect out-of-focus regions within a slide'
 ##### 4.	Press Run 
 
 ## TODO:
-##### 1. Code Refactoring
-##### 2. Code Refactoring
+##### 1. Improving quality measurement feature
+
 
 
 ## Authors
-Out of focus plug-in Plugin was developed by **CIALAB**, (The Ohio State University)
+Out of focus plug-in Plugin was developed by  Caglar Senaras, (The Ohio State University)
 
 ## Copyright & License
