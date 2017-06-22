@@ -119,6 +119,8 @@ POCO_BEGIN_MANIFEST(sedeen::algorithm::AlgorithmBase)
 
 				//lowResMat.convertTo(lowResMat, CV_32F);
 				//extract tissue map
+				mylogger.print("f1- convert to gray: band"+ std::to_string(lowResMat.channels()) + "\n",1);
+				mylogger.print("type"+ std::to_string(lowResMat.type()) + "\n",1);
 				Mat grayImg;
 				cvtColor(lowResMat, grayImg, cv::COLOR_RGB2GRAY);	
 				grayImg.convertTo(grayImg,CV_8U);
@@ -126,10 +128,10 @@ POCO_BEGIN_MANIFEST(sedeen::algorithm::AlgorithmBase)
 				//apply a bluring function before OTSU 
 				GaussianBlur (grayImg,grayImg,cv::Size(9,9),0,0);
 				auto selectedThreshold=cv::threshold(grayImg, otsuR, 220,  255, THRESH_BINARY | CV_THRESH_OTSU  );
-				mylogger.print("Otsu threshold Val: " + std::to_string( selectedThreshold)+"\n");
+				mylogger.print("f1- Otsu threshold Val: " + std::to_string( selectedThreshold)+"\n");
 				if (selectedThreshold<220)  cv::threshold(grayImg, otsuR, 220,  255, THRESH_BINARY  );
 				//our tissue mask is otsuR
-				mylogger.print("Tissue detected.\n");
+				mylogger.print("f1- Tissue detected.\n");
 
 				return  otsuR;
 			}
@@ -227,7 +229,7 @@ POCO_BEGIN_MANIFEST(sedeen::algorithm::AlgorithmBase)
 
 
 			void outOfFocus::run() {
-				int debugMODE=1;  //debugMODE= 0 >no log file  //debugMODE= 1 >brief log //debugMODE= 2 >detailed log
+				int debugMODE=2;  //debugMODE= 0 >no log file  //debugMODE= 1 >brief log //debugMODE= 2 >detailed log
 
 				int sampleSize=512*2;
 				std:String outputfile=getUniqueFilename();
