@@ -12,12 +12,12 @@ The main purpose of the plugin is to detect out-of-focus regions within a slide'
 ## Usage:
 ##### 1.	Load a new image
 ##### 2.	Select the algorithm from the Analysis Manager menu
-![selecting plugin](https://github.com/sedeen-piip-plugins/out_of_focus/images/1.jpg)
+![selecting plugin](https://github.com/sedeen-piip-plugins/out_of_focus/blob/master/images/1.jpg)
 ##### 3.	Change paremeters (optional)
-![changing parameters](https://github.com/sedeen-piip-plugins/out_of_focus/images/2.jpg)
+![changing parameters](https://github.com/sedeen-piip-plugins/out_of_focus/blob/master/images/2.jpg)
 ##### 4.	Press Run 
-![output](https://github.com/sedeen-piip-plugins/out_of_focus/images/3.jpg)
-![output values](https://github.com/sedeen-piip-plugins/out_of_focus/images/4.jpg)
+![output](https://github.com/sedeen-piip-plugins/out_of_focus/blob/master/images/3.jpg)
+![output values](https://github.com/sedeen-piip-plugins/out_of_focus/blob/master/images/4.jpg)
 
 ## TODO:
 ##### 1. Improving quality measurement feature
