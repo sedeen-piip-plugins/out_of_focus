@@ -196,7 +196,7 @@ POCO_BEGIN_MANIFEST(sedeen::algorithm::AlgorithmBase)
 			// Aims to visualize
 			image::RawImage outOfFocus::createMask(cv::Mat finalMap, sedeen::Size sz, logger &mylogger){
 				mylogger.print("final visual mask generation:\n");
-				image::RawImage mask(sz, Color(ColorSpace::RGBA_8));
+				image::RawImage mask(sz, ColorSpace(ColorModel::RGBA, ChannelType::UInt8));
 				mask.fill(0);
 				unsigned char intensityA=255;
 
@@ -239,7 +239,7 @@ POCO_BEGIN_MANIFEST(sedeen::algorithm::AlgorithmBase)
 				mylogger.print("Get factory.\n");
 
 				auto source_factory = image()->getFactory();
-				auto source_color = source_factory->getColor();
+				auto source_color = source_factory->getColorSpace();
 				auto compositor = image::tile::Compositor(source_factory) ;
 				auto szInitial = compositor.getDimensions(0);
 				auto reducedSize= szInitial*(1.0/sampleSize); //requested new dimension
